@@ -1,5 +1,7 @@
 ## Armbian for RK3528 TV-box
 
+- **This repository is long out of date because the reported issues and patches were relevant for Linux kernel 5.10. On Linux 6, some things have improved, some have worsened. I haven't found a use for this TV box (it has a very weak graphics core) and have stopped following Armbian updates. So there's no point in asking me about anything. On the Armbian forums, you can find people running Linux on the new kernel and who have new patches.**
+
 Tested on Vontar DQ08 and H96 Max M1.
 
 * H96 Max M1 is not recommended due to lack of essential ports.
