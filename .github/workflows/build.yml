@@ -1,0 +1,143 @@
+name: Build Armbian (RK3528 TV-box / Vontar DQ08)
+
+# Builds a ready-to-flash Armbian image for the Vontar DQ08 (Rockchip RK3528A),
+# using ilyakurdyukov's kernel config + U-Boot patches (which are what make HDMI
+# output actually work on this board), and bakes in the DQ08 device tree,
+# fdtfile, and a generous rootdelay so it boots reliably from the flaky SD slot.
+#
+# Trigger manually from the Actions tab ("Run workflow"). Output is uploaded as
+# a build artifact: the flashable .img.xz plus the standalone DQ08 .dtb.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Ubuntu/Debian release"
+        default: "jammy"
+      desktop:
+        description: "Build desktop (mate) or minimal (server)"
+        type: choice
+        default: "desktop"
+        options: [desktop, minimal]
+  push:
+    paths:
+      - ".github/workflows/build.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - name: Checkout this fork
+        uses: actions/checkout@v4
+        with:
+          path: rk3528-tvbox
+
+      # Armbian needs ~50GB; the default runner has ~14GB free. This frees ~30-40GB.
+      - name: Free up disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: false
+          swap-storage: true
+
+      - name: Install DTB build dependencies
+        run: sudo apt-get update && sudo apt-get install -y device-tree-compiler gcc make xz-utils
+
+      # Fast, fail-fast step: build the DQ08 device tree before the long OS build.
+      - name: Build DQ08 device tree (PRESET=LINUX)
+        run: |
+          set -euxo pipefail
+          cd rk3528-tvbox/devicetree
+          cp orig/*.dtsi .
+          patch -p1 -i rk3528-tvbox.patch
+          make NAME=rk3528-vontar-dq08 PRESET=LINUX
+          test -f rk3528-vontar-dq08.dtb
+          ls -l rk3528-vontar-dq08.dtb
+
+      - name: Clone armbian/build
+        run: git clone --depth=1 https://github.com/armbian/build armbian-build
+
+      - name: Apply RK3528 TV-box patches (board, family, kernel, U-Boot)
+        run: cp -R rk3528-tvbox/armbian-patch/* armbian-build/
+
+      - name: Build Armbian image
+        run: |
+          set -euxo pipefail
+          cd armbian-build
+          DESKTOP_OPTS=""
+          if [ "${{ github.event.inputs.desktop || 'desktop' }}" = "desktop" ]; then
+            DESKTOP_OPTS="BUILD_DESKTOP=yes BUILD_MINIMAL=no DESKTOP_APPGROUPS_SELECTED= DESKTOP_ENVIRONMENT=mate DESKTOP_ENVIRONMENT_CONFIG_NAME=config_base"
+          else
+            DESKTOP_OPTS="BUILD_DESKTOP=no BUILD_MINIMAL=yes"
+          fi
+          ./compile.sh build \
+            BOARD=rk3528-tvbox \
+            BRANCH=legacy \
+            RELEASE="${{ github.event.inputs.release || 'jammy' }}" \
+            $DESKTOP_OPTS \
+            EXPERT=yes \
+            KERNEL_CONFIGURE=no \
+            KERNEL_GIT=shallow \
+            COMPRESS_OUTPUTIMAGE=sha,img \
+            SHARE_LOG=no
+
+      # Bake the DQ08 dtb + fdtfile + rootdelay=25 into the freshly built image,
+      # so the downloaded artifact "just works" on the DQ08 without manual steps.
+      - name: Bake DQ08 dtb + fdtfile + rootdelay into image
+        run: |
+          set -euxo pipefail
+          IMG=$(ls armbian-build/output/images/*.img | head -1)
+          echo "Image: $IMG"
+          LOOP=$(sudo losetup -fP --show "$IMG")
+          echo "Loop: $LOOP"
+          mkdir -p bootmnt
+          sudo mount "${LOOP}p1" bootmnt
+          sudo cp rk3528-tvbox/devicetree/rk3528-vontar-dq08.dtb bootmnt/dtb/rockchip/rk3528-vontar-dq08.dtb
+          ENV=bootmnt/armbianEnv.txt
+          sudo sed -i 's|^fdtfile=.*|fdtfile=rockchip/rk3528-vontar-dq08.dtb|' "$ENV" || true
+          grep -q '^fdtfile=' "$ENV" || echo 'fdtfile=rockchip/rk3528-vontar-dq08.dtb' | sudo tee -a "$ENV"
+          sudo sed -i 's|^verbosity=.*|verbosity=7|' "$ENV" || true
+          if grep -q '^extraargs=' "$ENV"; then
+            sudo sed -i 's|^extraargs=.*|extraargs=rootdelay=25|' "$ENV"
+          else
+            echo 'extraargs=rootdelay=25' | sudo tee -a "$ENV"
+          fi
+          echo "----- armbianEnv.txt -----"; sudo cat "$ENV"
+          sudo umount bootmnt
+          sudo losetup -d "$LOOP"
+          echo "Recompressing image..."
+          xz -T0 -6 "$IMG"
+          ls -l armbian-build/output/images/
+
+      - name: Upload flashable image
+        uses: actions/upload-artifact@v4
+        with:
+          name: armbian-dq08-image
+          path: |
+            armbian-build/output/images/*.img.xz
+            armbian-build/output/images/*.img.sha
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload DQ08 device tree
+        uses: actions/upload-artifact@v4
+        with:
+          name: dq08-dtb
+          path: |
+            rk3528-tvbox/devicetree/rk3528-vontar-dq08.dtb
+            rk3528-tvbox/devicetree/rk3528-vontar-dq08.dtb.txt
+          if-no-files-found: warn
+
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: armbian-build/output/logs/
+          if-no-files-found: ignore
+          retention-days: 7

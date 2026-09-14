@@ -1,3 +1,77 @@
+# Armbian for the Vontar DQ08 (RK3528) — with a GitHub Actions builder
+
+> **This is a fork of [ilyakurdyukov/rk3528-tvbox](https://github.com/ilyakurdyukov/rk3528-tvbox).**
+> All the hard work — the kernel config, U-Boot patches, and the DQ08 device tree
+> that make this board usable under Linux — is his. This fork only adds:
+>
+> 1. A **GitHub Actions workflow** ([`.github/workflows/build.yml`](.github/workflows/build.yml))
+>    that builds a **ready-to-flash image in the cloud** — no local build host,
+>    no 50 GB of disk, no Docker setup. Just click *Run workflow* and download the artifact.
+> 2. The DQ08 device tree, `fdtfile`, and a generous `rootdelay=25` **baked into
+>    the image**, so the download boots on the DQ08 with working HDMI out of the box.
+> 3. This write-up of *why* HDMI is broken on the common prebuilt RK3528 Armbian
+>    images, and why building from these patches fixes it.
+
+## The HDMI story (why prebuilt images show a black screen)
+
+The only prebuilt Armbian image floating around for the DQ08 is
+[sicXnull's release](https://github.com/sicXnull/3528-HK1-RBOX-Armbian). It boots
+fine, gets on the network, runs the MATE desktop over SSH — **but HDMI stays black.**
+
+We chased this down to the hardware level. The findings:
+
+- **It is not the device tree.** The DQ08's vendor Android DTB (extracted from the
+  stock `boot.img`) and the Armbian DTB are byte-identical across the entire display
+  pipeline (VOP2 / HDMI / route / HDMI-PHY). Same DTB, so the DTB is not the difference.
+- **The HDMI PHY is never powered up.** On the broken build, *any* access to the
+  HDMI PHY (reading EDID, probing hot-plug detect, forcing the connector on) **hangs
+  in uninterruptible sleep** — you are poking registers of a block that has no clock
+  and no power. `clk_hdmihdp0` (hot-plug detect) and `clk_hdmiphy_pixel_io` are off.
+  With HDMI undetected (`status: disconnected`), the driver falls back to the analog
+  **CVBS/TV** output (which always reports "connected"), so the VOP lights up a
+  720x576i50 PAL signal on a connector you have no cable for → black HDMI.
+- **U-Boot is what initializes the HDMI PHY.** ilyakurdyukov's own note on the
+  [`gray_square_logo.patch`](armbian-patch/patch/u-boot/legacy/board_rk3528-tvbox/gray_square_logo.patch)
+  says it plainly: removing `CONFIG_DRM_ROCKCHIP=y` from the U-Boot defconfig makes
+  the boot-logo crash go away *"but after this HDMI will not work, so the
+  initialization that comes with this logo code seems to be important."* In other
+  words, the U-Boot DRM/logo code is what brings the HDMI PHY to life before Linux
+  starts. Prebuilt images whose U-Boot lacks (or crashes in) this init hand a dead
+  PHY to the kernel, which then can't recover it. Android works for the same reason:
+  its bootloader initializes HDMI.
+
+**Conclusion:** the fix is not a config tweak or a DTB swap — you have to build the
+kernel **and U-Boot** from these patches. That is exactly what the workflow here does.
+
+## How to build (GitHub Actions)
+
+1. Fork/open this repo on GitHub and enable Actions if prompted.
+2. Go to **Actions → "Build Armbian (RK3528 TV-box / Vontar DQ08)" → Run workflow.**
+3. Wait ~1 hour. Download the **`armbian-dq08-image`** artifact — it contains the
+   flashable `*.img.xz` (DQ08 dtb + `fdtfile` + `rootdelay=25` already baked in).
+
+The free GitHub-hosted runner is enough: a disk-cleanup step frees the ~50 GB the
+Armbian build needs, and the build finishes well inside the 6-hour job limit.
+
+## How to flash & boot
+
+1. Write the `.img.xz` to a microSD card (balenaEtcher / `dd` / Rufus). Do all
+   card work on a reliable reader — **not** through the DQ08's own SD slot, which
+   can corrupt writes.
+2. Insert the card into the DQ08 (powered off) and power on cold. The BootROM
+   prefers the SD, so **the card in = Armbian, card out = the untouched stock
+   Android on eMMC** (true dual-boot; nothing on eMMC is overwritten).
+3. If it boots the internal Android instead, the SD slot didn't latch — reseat the
+   card firmly and power-cycle. `rootdelay=25` covers the slow SD enumeration.
+4. First boot runs the Armbian first-login wizard (set a password, create a user);
+   the rootfs auto-expands to fill the card.
+
+Notes: `verbosity=7` is set so you can watch the boot over the RK3528 debug UART
+(`ttyFIQ0`, 1500000 8N1) if needed. HDMI hot-plug detection can still occasionally
+miss a monitor connected at boot — if so, replug the cable after Linux is up.
+
+---
+
 ## Armbian for RK3528 TV-box
 
 - **This repository is long out of date because the reported issues and patches were relevant for Linux kernel 5.10. On Linux 6, some things have improved, some have worsened. I haven't found a use for this TV box (it has a very weak graphics core) and have stopped following Armbian updates. So there's no point in asking me about anything. On the Armbian forums, you can find people running Linux on the new kernel and who have new patches.**
