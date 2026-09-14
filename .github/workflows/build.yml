@@ -66,8 +66,12 @@ jobs:
           test -f rk3528-vontar-dq08.dtb
           ls -l rk3528-vontar-dq08.dtb
 
-      - name: Clone armbian/build
-        run: git clone --depth=1 https://github.com/armbian/build armbian-build
+      # Pin to the v24.8.1 era: matches ilyakurdyukov's patches (kernel 5.10),
+      # still fetches the < gcc-8 toolchain the old rk3528 U-Boot (2017.09) needs,
+      # and predates the interactive DESKTOP_TIER menu. Building against latest
+      # main fails: gcc-14 turns U-Boot warnings into errors (-Werror=enum-int-mismatch).
+      - name: Clone armbian/build (pinned v24.8.1)
+        run: git clone --depth=1 --branch v24.8.1 https://github.com/armbian/build armbian-build
 
       - name: Apply RK3528 TV-box patches (board, family, kernel, U-Boot)
         run: cp -R rk3528-tvbox/armbian-patch/* armbian-build/
@@ -78,7 +82,7 @@ jobs:
           cd armbian-build
           DESKTOP_OPTS=""
           if [ "${{ github.event.inputs.desktop || 'desktop' }}" = "desktop" ]; then
-            DESKTOP_OPTS="BUILD_DESKTOP=yes BUILD_MINIMAL=no DESKTOP_TIER=minimal DESKTOP_ENVIRONMENT=mate DESKTOP_ENVIRONMENT_CONFIG_NAME=config_base"
+            DESKTOP_OPTS="BUILD_DESKTOP=yes BUILD_MINIMAL=no DESKTOP_APPGROUPS_SELECTED= DESKTOP_ENVIRONMENT=mate DESKTOP_ENVIRONMENT_CONFIG_NAME=config_base"
           else
             DESKTOP_OPTS="BUILD_DESKTOP=no BUILD_MINIMAL=yes"
           fi
