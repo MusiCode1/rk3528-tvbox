@@ -70,6 +70,28 @@ Notes: `verbosity=7` is set so you can watch the boot over the RK3528 debug UART
 (`ttyFIQ0`, 1500000 8N1) if needed. HDMI hot-plug detection can still occasionally
 miss a monitor connected at boot — if so, replug the cable after Linux is up.
 
+## Switching to the stock Android without pulling the card
+
+This is a genuine dual-boot: **card in → Armbian, card out → the untouched stock
+Android on eMMC.** The BootROM always prefers the SD, so normally you'd physically
+remove the card to get Android. [`tools/sd-android-toggle.sh`](tools/sd-android-toggle.sh)
+does it in software instead — it invalidates the SD's idbloader (LBA 64) so the
+BootROM skips the card and boots eMMC Android, and restores it later. It never
+touches the GPT or the partitions, and always backs up the boot gap first.
+
+```bash
+sudo ./sd-android-toggle.sh backup           # back up the boot gap only (safe)
+sudo ./sd-android-toggle.sh to-android        # invalidate idbloader (then cold-boot)
+sudo SD_DISK=/dev/sdX ./sd-android-toggle.sh restore sd-uboot-region.bin
+```
+
+**Crucial:** after `to-android` you must do a **full cold power-cycle** (unplug, or
+a smart plug off→on). A warm `reboot` does *not* switch — the BootROM only re-reads
+the now-invalid idbloader on a cold boot, and a warm reboot can land in a
+half-booted Armbian. Copy the `sd-uboot-region.bin` backup off the box before you
+switch, so you can `restore` it (from any Linux with the card attached) or just
+reflash the card to come back to Armbian.
+
 ---
 
 ## Armbian for RK3528 TV-box

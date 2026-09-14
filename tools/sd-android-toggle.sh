@@ -71,11 +71,27 @@ do_to_android() {
     echo
     echo ">>> Zeroing idbloader on $disk: LBA 64..$((p1start-1)) (GPT & partitions untouched)."
     dd if=/dev/zero of="$disk" bs=512 seek=64 count="$((p1start-64))" conv=fsync status=none
-    sync
-    echo ">>> idbloader invalidated. Backup kept at $bk (copy it off the box!)."
-    echo ">>> Rebooting into internal Android in 5s (Ctrl-C to cancel)..."
-    sleep 5
-    reboot
+    sync; sync
+    cat <<EOF
+
+============================================================
+ idbloader on $disk invalidated.  Backup: $bk  (copy it OFF the box!)
+
+ >>> NOW DO A FULL COLD POWER-CYCLE <<<
+   Cut power completely: unplug for ~5s, or smart-plug OFF then ON.
+
+   Do NOT use 'reboot'. A warm reboot does NOT switch — the BootROM
+   only re-reads the (now-invalid) SD idbloader on a COLD boot, and
+   a warm reboot can land in a half-booted Armbian with no sshd.
+
+ After the cold boot the box boots the internal Android (eMMC),
+ with the SD still inserted.
+
+ To return to Armbian:  $0 restore $bk
+   (run from Armbian or any Linux with the card attached), or just
+   reflash the card.
+============================================================
+EOF
 }
 
 do_restore() {
