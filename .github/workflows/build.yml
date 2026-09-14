@@ -45,6 +45,13 @@ jobs:
           docker-images: false
           swap-storage: true
 
+      # Armbian builds the arm64 rootfs in a chroot via qemu-user emulation;
+      # register the arm64 binfmt handlers on the runner host so its arch-test passes.
+      - name: Set up QEMU (arm64 emulation)
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
       - name: Install DTB build dependencies
         run: sudo apt-get update && sudo apt-get install -y device-tree-compiler gcc make xz-utils
 
