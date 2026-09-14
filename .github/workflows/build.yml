@@ -71,7 +71,7 @@ jobs:
           cd armbian-build
           DESKTOP_OPTS=""
           if [ "${{ github.event.inputs.desktop || 'desktop' }}" = "desktop" ]; then
-            DESKTOP_OPTS="BUILD_DESKTOP=yes BUILD_MINIMAL=no DESKTOP_APPGROUPS_SELECTED= DESKTOP_ENVIRONMENT=mate DESKTOP_ENVIRONMENT_CONFIG_NAME=config_base"
+            DESKTOP_OPTS="BUILD_DESKTOP=yes BUILD_MINIMAL=no DESKTOP_TIER=minimal DESKTOP_ENVIRONMENT=mate DESKTOP_ENVIRONMENT_CONFIG_NAME=config_base"
           else
             DESKTOP_OPTS="BUILD_DESKTOP=no BUILD_MINIMAL=yes"
           fi
