@@ -94,6 +94,7 @@ jobs:
             EXPERT=yes \
             KERNEL_CONFIGURE=no \
             KERNEL_GIT=shallow \
+            EXTRAWIFI=no \
             COMPRESS_OUTPUTIMAGE=sha,img \
             SHARE_LOG=no
 
