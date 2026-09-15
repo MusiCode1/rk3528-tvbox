@@ -123,17 +123,20 @@ jobs:
           sudo umount bootmnt
           sudo losetup -d "$LOOP"
           echo "Recompressing image..."
+          sudo chown "$(id -u):$(id -g)" "$IMG" || true
           xz -T0 -6 "$IMG"
           ls -l armbian-build/output/images/
 
       - name: Upload flashable image
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: armbian-dq08-image
           path: |
             armbian-build/output/images/*.img.xz
+            armbian-build/output/images/*.img
             armbian-build/output/images/*.img.sha
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14
 
       - name: Upload DQ08 device tree
